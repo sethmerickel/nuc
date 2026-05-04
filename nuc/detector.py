@@ -61,6 +61,7 @@ def simulate_frame(
     dsnu: np.ndarray,
     rng: np.random.Generator,
     config: SimConfig,
+    t_int_s: float | None = None,
 ) -> np.ndarray:
     """
     Simulate one detector frame and return a uint16 array of digital counts.
@@ -79,6 +80,9 @@ def simulate_frame(
         NumPy random generator (caller owns seeding).
     config : SimConfig
         Full simulation configuration.
+    t_int_s : float | None
+        Integration time override [s].  Uses config.integration_time_s when None.
+        Pass an effective value from the jitter model to simulate anomalous frames.
     """
     det = config.detector
     opt = config.optics
@@ -91,22 +95,24 @@ def simulate_frame(
     # Paraxial approximation: Ω = π (D/2)² / f²
     omega_sr = np.pi * (D_m / 2.0) ** 2 / f_m**2
 
+    t_int = t_int_s if t_int_s is not None else config.integration_time_s
+
     # Mean signal electrons: radiance × étendue × QE × relative illumination
     signal_e: np.ndarray = (
-        scene_photon_radiance       # photons/s/m²/sr
-        * omega_sr                  # sr  (aperture solid angle)
-        * opt.optical_transmission  # throughput
-        * pitch_m**2                # m²  (pixel area)
-        * config.integration_time_s # s
-        * det.quantum_efficiency    # e⁻/photon (mean)
-        * prnu                      # pixel-to-pixel QE variation
-        * ri_map                    # cos⁴(θ) illumination rolloff
+        scene_photon_radiance  # photons/s/m²/sr
+        * omega_sr             # sr  (aperture solid angle)
+        * opt.optical_transmission
+        * pitch_m**2           # m²  (pixel area)
+        * t_int                # s
+        * det.quantum_efficiency
+        * prnu
+        * ri_map
     )
 
     # Mean dark electrons per pixel over integration period
     dark_e: np.ndarray = (
         det.dark_current_electrons_per_s
-        * config.integration_time_s
+        * t_int
         * dsnu
     )
 

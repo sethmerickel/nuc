@@ -44,3 +44,7 @@ class SimConfig:
     scene: SceneConfig = field(default_factory=SceneConfig)
     integration_time_s: float = 0.010
     random_seed: int | None = 42
+    # Integration-time jitter anomaly.  When non-zero the detector alternates
+    # between t_int and t_int*(1+fraction) in an AABB pattern (2 nominal frames,
+    # 2 jittered frames, repeating).  Set to 0.0 to disable entirely.
+    integration_time_jitter_fraction: float = 0.0

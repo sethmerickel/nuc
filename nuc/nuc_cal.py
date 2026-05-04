@@ -67,6 +67,25 @@ def compute_nuc(
     return nuc_gain, nuc_uncertainty, relative_uncertainty
 
 
+def _effective_t_int(frame_idx: int, config: SimConfig) -> float:
+    """
+    Return the effective integration time for a 1-based frame index.
+
+    When jitter is enabled the pattern is AABB: frames 1-2 run at the nominal
+    integration time, frames 3-4 at t_int*(1+jitter_fraction), frames 5-6 back
+    to nominal, and so on.  Both hot and cold frames in a given iteration share
+    the same jitter state, matching the physical case where the anomaly is a
+    property of the detector clock rather than the scene.
+
+    Set config.integration_time_jitter_fraction = 0.0 to disable entirely.
+    """
+    if config.integration_time_jitter_fraction == 0.0:
+        return config.integration_time_s
+    is_jittered = ((frame_idx - 1) // 2) % 2 == 1
+    scale = 1.0 + config.integration_time_jitter_fraction if is_jittered else 1.0
+    return config.integration_time_s * scale
+
+
 def run_nuc_uncertainty(
     n_frames: int = 100,
     config: SimConfig | None = None,
@@ -131,8 +150,9 @@ def run_nuc_uncertainty(
     report_interval = max(1, n_frames // 10)
 
     for i in range(1, n_frames + 1):
-        hot_acc.update(simulate_frame(hot_L, ri_map, prnu, dsnu, rng, config))
-        cold_acc.update(simulate_frame(cold_L, ri_map, prnu, dsnu, rng, config))
+        t_int = _effective_t_int(i, config)
+        hot_acc.update(simulate_frame(hot_L, ri_map, prnu, dsnu, rng, config, t_int_s=t_int))
+        cold_acc.update(simulate_frame(cold_L, ri_map, prnu, dsnu, rng, config, t_int_s=t_int))
 
         if i in checkpoint_set:
             _, _, rel_unc = compute_nuc(hot_acc, cold_acc)
