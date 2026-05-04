@@ -10,11 +10,10 @@ Signal chain (in order):
   ─────────────────────────────────────
   = mean signal electrons  [Poisson]
   + mean dark electrons (modulated by DSNU)  [Poisson]
-  → joint Poisson shot noise sample
-  + Gaussian read noise
-  → clip to full well
+  → joint Poisson shot noise sample         (charge in well: clip to [0, FW])
+  + Gaussian read noise                     (added in ROIC amplifier; can go negative)
   → ADC: electrons → ADU (gain + digital offset)
-  → round + clamp to bit depth
+  → round + clamp to [0, max_ADU]
 """
 
 import numpy as np
@@ -115,17 +114,19 @@ def simulate_frame(
     # Signal and dark share the same Poisson draw because both represent
     # randomly arriving carriers in the same integration well.
     mean_total_e = np.maximum(signal_e + dark_e, 0.0)
-    sampled_e = rng.poisson(mean_total_e).astype(np.float64)
+    charge_e = rng.poisson(mean_total_e).astype(np.float64)
 
-    # Read noise: Gaussian, added after charge integration, independent per pixel.
-    sampled_e += rng.normal(0.0, det.read_noise_electrons, sampled_e.shape)
+    # Charge saturates at full well; lower bound is 0 (no negative charge).
+    charge_e = np.clip(charge_e, 0.0, det.full_well_electrons)
 
-    # Clip to physical bounds: 0 (no negative charge) to full well
-    sampled_e = np.clip(sampled_e, 0.0, det.full_well_electrons)
+    # Read noise is added in the ROIC source-follower / amplifier chain, after
+    # charge collection.  It is symmetric and can push the readout below the
+    # pedestal — the digital offset is sized to catch this without bottom-clipping.
+    readout_e = charge_e + rng.normal(0.0, det.read_noise_electrons, charge_e.shape)
 
-    # ADC conversion: electrons → digital counts
+    # ADC conversion: electrons → digital counts, then clamp to bit depth.
     gain = _gain_e_per_adu(det)
-    adu = sampled_e / gain + det.digital_offset_adu
+    adu = readout_e / gain + det.digital_offset_adu
 
     max_adu = (1 << det.bit_depth) - 1
     return np.clip(np.round(adu), 0, max_adu).astype(np.uint16)
